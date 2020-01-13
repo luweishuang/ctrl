@@ -5,6 +5,7 @@ def angle_defn(pos, i, d_model_size):
   angle_rates = 1 / np.power(10000, (2 * (i//2)) / np.float32(d_model_size))
   return pos * angle_rates
 
+
 def positional_encoding(position, d_model_size):
   # create the sinusoidal pattern for the positional encoding
   angle_rads = angle_defn(np.arange(position)[:, np.newaxis], np.arange(d_model_size)[np.newaxis, :], d_model_size)
@@ -14,7 +15,6 @@ def positional_encoding(position, d_model_size):
   
   pos_encoding = tf.cast(np.concatenate([sines, cosines], axis=-1)[np.newaxis, ...], dtype=tf.float32)
   return pos_encoding 
-
 
 
 def scaled_dot_product_attention(q, k, v, mask):
@@ -30,6 +30,7 @@ def scaled_dot_product_attention(q, k, v, mask):
   attention_weights = tf.nn.softmax(scaled_attention_logits, axis=-1) 
   output = tf.matmul(attention_weights, v) 
   return output
+
 
 class MultiHeadAttention(tf.keras.layers.Layer):
   def __init__(self, d_model_size, num_heads):
@@ -62,10 +63,8 @@ class MultiHeadAttention(tf.keras.layers.Layer):
     
     scaled_attention = tf.transpose(scaled_dot_product_attention(q, k, v, mask), perm=[0, 2, 1, 3])
     original_size_attention = tf.reshape(scaled_attention,  (batch_size, -1, self.d_model_size))
-    output = self.dense(original_size_attention) 
-        
+    output = self.dense(original_size_attention)
     return output
-
 
 
 def point_wise_feed_forward_network(d_model_size, dff):
@@ -96,10 +95,7 @@ class EncoderLayer(tf.keras.layers.Layer):
     ffn_output = self.ffn(out2)
     ffn_output = self.dropout2(ffn_output, training=training)
     out2 = out1 + ffn_output
-    
     return out2
-
-
 
 
 class Encoder(tf.keras.layers.Layer):
@@ -123,14 +119,11 @@ class Encoder(tf.keras.layers.Layer):
     return base_config
   
   def call(self, x, training):
-
     seq_len = tf.shape(x)[1]
-    
     mask = 1 - tf.linalg.band_part(tf.ones((seq_len, seq_len)), -1, 0)
     
     x *= tf.math.sqrt(tf.cast(self.d_model_size, tf.float32))
     x += self.pos_encoding[:, :seq_len, :]
-
     x = self.dropout(x, training=training)
     
     for i in range(self.num_layers):

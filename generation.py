@@ -20,25 +20,15 @@ from control_codes import CONTROL_CODES
 use_py3 = platform.python_version()[0] == '3'
 
 parser = argparse.ArgumentParser(description='TensorFlow code for generating from CTRL')
-parser.add_argument('--model_dir', type=str, required=True,
-                                        help='location of model checkpoint')
-parser.add_argument('--seed', type=int, default=1337,
-                                        help='random seed for TensorFlow, numpy and PythonHash')
-parser.add_argument('--generate_num', type=int, default=256,
-                                        help='number of tokens to generate')
-parser.add_argument('--temperature', type=float, default=0,
-                                        help='temperature for sampling distribution; 0 means greedy')
-parser.add_argument('--nucleus', type=float, default=0.,
-                                        help='cumulative probability cutoff for nucleus sampling; 0 means no nucleus sampling')
-parser.add_argument('--topk', type=int, default=0,
-                                        help='topk value for sampling from the softmax distribution ; 0 means no topk preferred')
-parser.add_argument('--penalty', type=float, default=1.2,
-                                        help='repetition penalty for greedy sampling')
-parser.add_argument('--print_once', action='store_true',
-                                        help='the completion is printed only at the end; not every word')
-parser.add_argument('--topn', type=int, default=0,
-                                        help='print top-n candidates during generations; defaults to 0 which is no printing')
-
+parser.add_argument('--model_dir', type=str, default='models/seqlen256_v1.ckpt', help='location of model checkpoint')
+parser.add_argument('--seed', type=int, default=1337, help='random seed for TensorFlow, numpy and PythonHash')
+parser.add_argument('--generate_num', type=int, default=256, help='number of tokens to generate')
+parser.add_argument('--temperature', type=float, default=0, help='temperature for sampling distribution; 0 means greedy')
+parser.add_argument('--nucleus', type=float, default=0., help='cumulative probability cutoff for nucleus sampling; 0 means no nucleus sampling')
+parser.add_argument('--topk', type=int, default=0, help='topk value for sampling from the softmax distribution ; 0 means no topk preferred')
+parser.add_argument('--penalty', type=float, default=1.2, help='repetition penalty for greedy sampling')
+parser.add_argument('--print_once', action='store_true', help='the completion is printed only at the end; not every word')
+parser.add_argument('--topn', type=int, default=0, help='print top-n candidates during generations; defaults to 0 which is no printing')
 args = parser.parse_args()
 tf.random.set_random_seed(args.seed)
 os.environ['PYTHONHASHSEED'] = str(args.seed)
@@ -47,7 +37,7 @@ np.random.seed(args.seed)
 # load the vocabulary from file
 vocab = open('vocab').read().decode(encoding='utf-8').split('\n') if not use_py3 else open('vocab', encoding='utf-8').read().split('\n')
 vocab = list(map(lambda x: x.split(' ')[0], vocab)) + ['<unk>'] + ['\n']
-print ('{} unique words'.format(len(vocab)))
+print('{} unique words'.format(len(vocab)))      # 246534 unique words
 
 # length of the vocabulary
 vocab_size = len(vocab)
@@ -55,17 +45,14 @@ vocab_size = len(vocab)
 # define the numericalization map
 # idx2word maps the numericalized ID to the word
 # word2idx maps the word to the numericalized ID
-word2idx = {u:i for i, u in enumerate(vocab)}
+word2idx = {u: i for i, u in enumerate(vocab)}
 idx2word = np.array(vocab)
-
 
 
 # sequence length to use for the transformer
 # the model is trained with a seq_length of 512
 # so, any value <= 512 should work
 seq_length = min(args.generate_num, 256)
-
-
 
 
 # the dimension of the transformer
@@ -77,7 +64,6 @@ embedding_dim = 1280
 # here, we only define the tied softmax layer
 # this layer ties the softmax weights to the input embeddings
 class TiedEmbeddingSoftmax(tf.keras.layers.Layer):
-
   def __init__(self, vocab_size=vocab_size, embedding_size=embedding_dim, **kwargs):
     super(TiedEmbeddingSoftmax, self).__init__()
     self.w = self.add_weight(name='w', shape=(vocab_size, embedding_size),
@@ -128,9 +114,7 @@ def loss(labels, logits):
 # the optimizer is not used since this code only supports inference
 # however, to compile the model, we still define it
 optimizer = tf.contrib.tpu.CrossShardOptimizer(
-    tf.contrib.estimator.clip_gradients_by_norm(
-        tf.train.AdagradOptimizer(learning_rate=1e-2), 0.25)
-    )        
+    tf.contrib.estimator.clip_gradients_by_norm(tf.train.AdagradOptimizer(learning_rate=1e-2), 0.25))
 
 # compile the model with the optimizer and loss            
 model.compile(optimizer=optimizer, loss=loss)
@@ -141,8 +125,7 @@ print(model.summary())
 # this is where the saved model is presented to the code
 # the model directory should have the model checkpoint and
 # a checkpoint file
-run_config = tf.contrib.tpu.RunConfig(
-        model_dir=args.model_dir)
+run_config = tf.contrib.tpu.RunConfig(model_dir=args.model_dir)
 
 
 # this converts the Keras model to a TensorFlow estimator
@@ -153,7 +136,7 @@ estimator_model = tf.keras.estimator.model_to_estimator(keras_model=model, confi
 # we now create a serving function from this estimator
 # this enables us to load the model once and easily query it multiple times
 def serving_input_fn():
-    inputs = {'input_1': tf.placeholder(tf.int32, [1,seq_length])}
+    inputs = {'input_1': tf.placeholder(tf.int32, [1, seq_length])}
     return tf.estimator.export.ServingInputReceiver(inputs, inputs)
 predict_fn = tf.contrib.predictor.from_estimator(estimator_model, serving_input_fn)
 
@@ -165,10 +148,9 @@ temperature = args.temperature
 nucleusprob = args.nucleus
 penalty = args.penalty
 topk = args.topk
-
 while True:
     prompt = raw_input('ENTER PROMPT: ') if not use_py3 else input('ENTER PROMPT: ')
-    prompt = prompt.split('\\n') # split on newlines if provided
+    prompt = prompt.split('\\n')  # split on newlines if provided
 
     # tokenize provided prompt
     split_prompt = ' \n '.join(bpe.apply(prompt))
@@ -180,7 +162,7 @@ while True:
 
     # pad with 0s and create a mini-batch of 2 (arbitrary, for ease of code)
     padded_text = text + [0] * (args.generate_num - len(text))
-    tokens_generated = np.tile(padded_text, (1,1))
+    tokens_generated = np.tile(padded_text, (1, 1))
     try:
         for token in range(len(text)-1, args.generate_num-1):
           # get the logits from the prediction function
@@ -188,7 +170,7 @@ while True:
           # this is done by sliding the window over (past 512 tokens) and continuing prediction
           # I'm sure this can be simplified (TODO)
           if token <= seq_length:
-            prompt_logits = predict_fn({'input_1':tokens_generated[:, :seq_length]})['tied_embedding_softmax'].squeeze() / (temperature if temperature>0 else 1.)
+            prompt_logits = predict_fn({'input_1': tokens_generated[:, :seq_length]})['tied_embedding_softmax'].squeeze() / (temperature if temperature>0 else 1.)
             _token = token if token < seq_length else -1
           else:
             _token = -1
@@ -199,7 +181,7 @@ while True:
 
           # if penalty (for repetition) is non-zero,
           # discount the logits from already generated tokens
-          if penalty>0:
+          if penalty > 0:
               penalized_so_far = set()
               for _ in range(token+1):
                  generated_token = tokens_generated[0][_]
@@ -288,7 +270,5 @@ while True:
         print('---------------------------------------')            
         print(tokens_generated_so_far)
         print()
-
     except KeyboardInterrupt: #Exception as e:
         print('Continuing')
-            

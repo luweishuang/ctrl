@@ -6,11 +6,11 @@ import numpy as np
 tf.enable_eager_execution()
 import transformer
 import argparse
-import pdb
-import sys
-import re
-from collections import Counter
-from tensorflow.python import debug as tf_debug
+# import pdb
+# import sys
+# import re
+# from collections import Counter
+# from tensorflow.python import debug as tf_debug
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import embedding_ops
 import fastBPE
@@ -19,11 +19,8 @@ import platform
 use_py3 = platform.python_version()[0] == '3'
 
 parser = argparse.ArgumentParser(description='TensorFlow code for generating from CTRL')
-parser.add_argument('--model_dir', type=str, required=True,
-                                        help='location of model checkpoint')
-parser.add_argument('--seed', type=int, default=1337,
-                                        help='random seed for TensorFlow, numpy and PythonHash')
-
+parser.add_argument('--model_dir', type=str, required=True, help='location of model checkpoint')
+parser.add_argument('--seed', type=int, default=1337, help='random seed for TensorFlow, numpy and PythonHash')
 args = parser.parse_args()
 tf.random.set_random_seed(args.seed)
 os.environ['PYTHONHASHSEED'] = str(args.seed)
@@ -32,7 +29,7 @@ np.random.seed(args.seed)
 # load the vocabulary from file
 vocab = open('vocab').read().decode(encoding='utf-8').split('\n') if not use_py3 else open('vocab', encoding='utf-8').read().split('\n')
 vocab = list(map(lambda x: x.split(' ')[0], vocab)) + ['<unk>'] + ['\n']
-print ('{} unique words'.format(len(vocab)))
+print('{} unique words'.format(len(vocab)))
 
 # length of the vocabulary
 vocab_size = len(vocab)
@@ -40,17 +37,14 @@ vocab_size = len(vocab)
 # define the numericalization map
 # idx2word maps the numericalized ID to the word
 # word2idx maps the word to the numericalized ID
-word2idx = {u:i for i, u in enumerate(vocab)}
+word2idx = {u: i for i, u in enumerate(vocab)}
 idx2word = np.array(vocab)
-
 
 
 # sequence length to use for the transformer
 # the model is trained with a seq_length of 512
 # so, any value <= 512 should work
 seq_length = 256
-
-
 
 
 # the dimension of the transformer
@@ -126,8 +120,7 @@ print(model.summary())
 # this is where the saved model is presented to the code
 # the model directory should have the model checkpoint and
 # a checkpoint file
-run_config = tf.contrib.tpu.RunConfig(
-        model_dir=args.model_dir)
+run_config = tf.contrib.tpu.RunConfig(model_dir=args.model_dir)
 
 
 # this converts the Keras model to a TensorFlow estimator
