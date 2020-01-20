@@ -20,14 +20,10 @@ import platform
 use_py3 = platform.python_version()[0] == '3'
 
 parser = argparse.ArgumentParser(description='TensorFlow code for generating from CTRL')
-parser.add_argument('--model_dir', type=str, required=True,
-                                        help='location of model checkpoint')
-parser.add_argument('--seed', type=int, default=1337,
-                                        help='random seed for TensorFlow, numpy and PythonHash')
-parser.add_argument('--sequence_len', type=int, default=256,
-                                        help='sequence len of model being fine-tuned (must match also the TFRecords)')
-parser.add_argument('--iterations', type=int, default=1000,
-                                        help='random seed for TensorFlow, numpy and PythonHash')
+parser.add_argument('--model_dir', type=str, required=True, help='location of model checkpoint')
+parser.add_argument('--seed', type=int, default=1337, help='random seed for TensorFlow, numpy and PythonHash')
+parser.add_argument('--sequence_len', type=int, default=256, help='sequence len of model being fine-tuned (must match also the TFRecords)')
+parser.add_argument('--iterations', type=int, default=1000, help='random seed for TensorFlow, numpy and PythonHash')
 
 args = parser.parse_args()
 tf.random.set_random_seed(args.seed)
@@ -37,7 +33,7 @@ np.random.seed(args.seed)
 # load the vocabulary from file
 vocab = open('../vocab').read().decode(encoding='utf-8').split('\n') if not use_py3 else open('../vocab', encoding='utf-8').read().split('\n')
 vocab = list(map(lambda x: x.split(' ')[0], vocab)) + ['<unk>'] + ['\n']
-print ('{} unique words'.format(len(vocab)))
+print('{} unique words'.format(len(vocab)))
 
 # length of the vocabulary
 vocab_size = len(vocab)
@@ -45,7 +41,7 @@ vocab_size = len(vocab)
 # define the numericalization map
 # idx2word maps the numericalized ID to the word
 # word2idx maps the word to the numericalized ID
-word2idx = {u:i for i, u in enumerate(vocab)}
+word2idx = {u: i for i, u in enumerate(vocab)}
 idx2word = np.array(vocab)
 
 
@@ -68,8 +64,7 @@ def input_fn(params=None):
         blah = tf.io.parse_single_example(example_proto, myfeatures)
         return blah['input'], blah['output']
     
-    train_data = tf_data.map(_parse_text_function).batch(params['batch_size'], drop_remainder=True).repeat().shuffle(10000)#.prefetch(tf.contrib.data.AUTOTUNE)
-    
+    train_data = tf_data.map(_parse_text_function).batch(params['batch_size'], drop_remainder=True).repeat().shuffle(10000)  #.prefetch(tf.contrib.data.AUTOTUNE)
     return train_data
 
 
@@ -145,8 +140,7 @@ print(model.summary())
 # this is where the saved model is presented to the code
 # the model directory should have the model checkpoint and
 # a checkpoint file
-run_config = tf.contrib.tpu.RunConfig(
-        model_dir=args.model_dir)
+run_config = tf.contrib.tpu.RunConfig(model_dir=args.model_dir)
 
 
 # this converts the Keras model to a TensorFlow estimator
