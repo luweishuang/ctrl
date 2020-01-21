@@ -30,6 +30,7 @@ parser.add_argument('--penalty', type=float, default=1.2, help='repetition penal
 parser.add_argument('--print_once', action='store_true', help='the completion is printed only at the end; not every word')
 parser.add_argument('--topn', type=int, default=0, help='print top-n candidates during generations; defaults to 0 which is no printing')
 args = parser.parse_args()
+
 tf.random.set_random_seed(args.seed)
 os.environ['PYTHONHASHSEED'] = str(args.seed)
 np.random.seed(args.seed)
@@ -38,23 +39,18 @@ np.random.seed(args.seed)
 vocab = open('vocab').read().decode(encoding='utf-8').split('\n') if not use_py3 else open('vocab', encoding='utf-8').read().split('\n')
 vocab = list(map(lambda x: x.split(' ')[0], vocab)) + ['<unk>'] + ['\n']
 print('{} unique words'.format(len(vocab)))      # 246534 unique words
-
 # length of the vocabulary
 vocab_size = len(vocab)
-
 # define the numericalization map
 # idx2word maps the numericalized ID to the word
 # word2idx maps the word to the numericalized ID
 word2idx = {u: i for i, u in enumerate(vocab)}
 idx2word = np.array(vocab)
 
-
 # sequence length to use for the transformer
 # the model is trained with a seq_length of 512
 # so, any value <= 512 should work
 seq_length = min(args.generate_num, 256)
-
-
 # the dimension of the transformer
 embedding_dim = 1280
 
@@ -84,39 +80,28 @@ class TiedEmbeddingSoftmax(tf.keras.layers.Layer):
 
 # input for the keras model
 tokens = tf.keras.layers.Input(shape=(seq_length,), dtype='int32')
-
 # instantiates a tied softmax class
 tied_embedding_softmax = TiedEmbeddingSoftmax()
-
 # embedded tokens, before passing it to the transformer
 embedded = tied_embedding_softmax(tokens, embed=True)
-
 # the activations after passing it from the transformer
 # for some odd reason, TPUs don't play well with specifying the arguments of the Encoder() function
 # so you have to leave them at their defaults
 transformed = transformer.Encoder()(embedded, training=False)
-
-
 # pass the activations from our tiedsoftmax class
 # this time with embed=False denoting that we are doing the softmax operation
 # and not a lookup
 logits = tied_embedding_softmax(transformed, embed=False)
-
-
 # finally, define the Keras model with inputs as tokens and outputs as the logits we just computed
 model = tf.keras.Model(inputs=tokens, outputs=logits)
-
-
 # the loss function is a simple categorical crossentropy between the logits and the labels
 def loss(labels, logits):
     return tf.keras.losses.sparse_categorical_crossentropy(labels, logits, from_logits=True)
-
 # the optimizer is not used since this code only supports inference
 # however, to compile the model, we still define it
 optimizer = tf.contrib.tpu.CrossShardOptimizer(
     tf.contrib.estimator.clip_gradients_by_norm(tf.train.AdagradOptimizer(learning_rate=1e-2), 0.25))
-
-# compile the model with the optimizer and loss            
+# compile the model with the optimizer and loss
 model.compile(optimizer=optimizer, loss=loss)
 print(model.summary())
 
@@ -126,20 +111,16 @@ print(model.summary())
 # the model directory should have the model checkpoint and
 # a checkpoint file
 run_config = tf.contrib.tpu.RunConfig(model_dir=args.model_dir)
-
-
 # this converts the Keras model to a TensorFlow estimator
 # this step is critical
 # remember to patch the TF 1.14 file before running the code, else you're going to see errors here
 estimator_model = tf.keras.estimator.model_to_estimator(keras_model=model, config=run_config)
-
 # we now create a serving function from this estimator
 # this enables us to load the model once and easily query it multiple times
 def serving_input_fn():
     inputs = {'input_1': tf.placeholder(tf.int32, [1, seq_length])}
     return tf.estimator.export.ServingInputReceiver(inputs, inputs)
 predict_fn = tf.contrib.predictor.from_estimator(estimator_model, serving_input_fn)
-
 # almost there, we now take the user prompt and tokenize with BPE
 # load BPE codes
 bpe = fastBPE.fastBPE('codes', 'vocab')
@@ -155,7 +136,6 @@ while True:
     # tokenize provided prompt
     split_prompt = ' \n '.join(bpe.apply(prompt))
     split_prompt = split_prompt.split(' ')
-
     if not any(split_prompt[0] == x for x in CONTROL_CODES.keys()):
         print("WARNING! You are not starting your generation from a control code so you won't get good results")
     text = [word2idx[i] for i in split_prompt]
@@ -170,7 +150,7 @@ while True:
             # this is done by sliding the window over (past 512 tokens) and continuing prediction
             # I'm sure this can be simplified (TODO)
             if token <= seq_length:
-                prompt_logits = predict_fn({'input_1': tokens_generated[:, :seq_length]})['tied_embedding_softmax'].squeeze() / (temperature if temperature>0 else 1.)
+                prompt_logits = predict_fn({'input_1': tokens_generated[:, :seq_length]})['tied_embedding_softmax'].squeeze() / (temperature if temperature > 0 else 1.)
                 _token = token if token < seq_length else -1
             else:
                 _token = -1
@@ -205,7 +185,6 @@ while True:
             # it tries to generate the Score (reddit Karma) immediately after generating the Title:
             # to disallow this, we can just prevent it from generating Score
             prompt_logits[_token][word2idx['Sco@@']] = -1e8
-
 
             # compute probabilities from logits
             prompt_probs = np.exp(prompt_logits[_token])
@@ -257,7 +236,6 @@ while True:
 
             # clear screen if you want to
             # os.system("clear")
-
             tokens_generated_so_far = ' '.join([idx2word[c] for c in tokens_generated[0].squeeze()[:token+2]])
             tokens_generated_so_far = re.sub('(@@ )', '', string=tokens_generated_so_far)
             tokens_generated_so_far = re.sub('(@@ ?$)', '', string=tokens_generated_so_far)
