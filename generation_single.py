@@ -6,8 +6,11 @@ import numpy as np
 tf.enable_eager_execution()
 import transformer
 import argparse
+import pdb
+import sys
 import re
-import math
+from collections import Counter
+from tensorflow.python import debug as tf_debug
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import embedding_ops
 import fastBPE
@@ -103,49 +106,6 @@ model.compile(optimizer=optimizer, loss=loss)
 print(model.summary())
 
 
-def process_input_text_2_list(input_str, thr_len, overlap=0.2):
-    output_list = []
-    input_len = len(input_str.split())
-    if input_len > thr_len:
-        print("input text %d too long, do text summarization by paragraphs! thr_len = %d " % (input_len, thr_len))
-        input_list = input_str.split(".")
-        para_len = 0
-        ii = 0
-        while ii < len(input_list):
-            cur_len = len(input_list[ii].split(" "))
-            para_len += cur_len
-            if para_len < thr_len:
-                ii += 1
-            else:
-                para_str = '.'.join(input_list[:ii])
-                output_list.append(para_str + '.')
-                overlap_sentences = max(int(math.ceil(overlap * ii)), 0)
-                del input_list[: ii - overlap_sentences]
-                para_len = 0
-                ii = 0
-        para_str = '.'.join(input_list[:])
-        output_list.append(para_str)
-    else:
-        output_list.append(input_str)
-    return output_list
-
-
-
-def split_on_window(input_str, over_lap=0.2):
-    thr_len = seq_length - 100
-    overlap_len = int(over_lap * thr_len)
-    output_list = []
-    split_sequence = input_str.split()
-    iteration_length = len(split_sequence) - (thr_len - overlap_len - 1)
-    for index in range(0,  iteration_length, thr_len - overlap_len):
-        cur_str = split_sequence[index : index + thr_len]
-        output_list.append(cur_str)
-    cur_str = split_sequence[index + thr_len - overlap_len:]
-    output_list.append(cur_str)
-    return output_list
-
-
-
 # IMPORTANT
 # this is where the saved model is presented to the code
 # the model directory should have the model checkpoint and
@@ -169,12 +129,10 @@ temperature = args.temperature
 nucleusprob = args.nucleus
 penalty = args.penalty
 topk = args.topk
+while True:
+    prompt = raw_input('ENTER PROMPT: ') if not use_py3 else input('ENTER PROMPT: ')
+    prompt = prompt.split('\\n')  # split on newlines if provided
 
-
-def cur_text_summary(para_str_in):
-    # prompt = 'News villagers , fishermen and hotel residents found the dolphins \' carcasses on friday and alerted officials .it was not immediately clear what killed the 400 dolphins , though scientists ruled out poisoning .narriman jidawi , a marine biologist at the institute of marine science in zanzibar , said their carcasses were strewn along a 4km stretch of nungwi .but the bottleneck dolphins , which live in deep offshore waters , had empty stomachs , meaning that they could have been disoriented and were swimming for some time to reorient themselves .they did not starve to death and were not poisoned , jidawi said .in the united states , experts were investigating the possibility that sonar from us submarines could have been responsible for a similar incident in marathon , florida , where 68 deep-water dolphins stranded themselves in march 2005 .a us navy task force patrols the east africa coast .a navy official was not immediately available for comment , but the service rarely comments on the location of submarines at sea .the deaths are a blow to the tourism industry in zanzibar , where thousands of visitors go to watch and swim with wild dolphins TL;DR:'
-    prompt = para_str_in.split('\\n')  # split on newlines if provided
-    summary_str_out = ''
     # tokenize provided prompt
     split_prompt = ' \n '.join(bpe.apply(prompt))
     split_prompt = split_prompt.split(' ')
@@ -183,32 +141,29 @@ def cur_text_summary(para_str_in):
     text = [word2idx[i] for i in split_prompt]
 
     # pad with 0s and create a mini-batch of 2 (arbitrary, for ease of code)
-    padded_text = text + [0] * (args.generate_num - len(text))  # !!! len(text) must little than args.generate_num
+    padded_text = text + [0] * (args.generate_num - len(text))
     tokens_generated = np.tile(padded_text, (1, 1))
     try:
-        # print(len(text) - 1, args.generate_num - 1)
-        for token in range(len(text) - 1, args.generate_num - 1):
+        for token in range(len(text)-1, args.generate_num-1):
             # get the logits from the prediction function
             # the logic here is a bit convoluted because we are allowing generation past 512 tokens
             # this is done by sliding the window over (past 512 tokens) and continuing prediction
             # I'm sure this can be simplified (TODO)
             if token <= seq_length:
-                prompt_logits = predict_fn({'input_1': tokens_generated[:, :seq_length]})[
-                                    'tied_embedding_softmax'].squeeze() / (temperature if temperature > 0 else 1.)
+                prompt_logits = predict_fn({'input_1': tokens_generated[:, :seq_length]})['tied_embedding_softmax'].squeeze() / (temperature if temperature > 0 else 1.)
                 _token = token if token < seq_length else -1
             else:
                 _token = -1
-                start = token - seq_length + 2
                 end = token + 1
-                prompt_logits = \
-                predict_fn({'input_1': np.hstack((tokens_generated[:, 0:1], tokens_generated[:, start:end]))})[
-                    'tied_embedding_softmax'].squeeze() / (temperature if temperature > 0 else 1.)
+                start = token - seq_length + 2
+                prompt_logits = predict_fn({'input_1':np.hstack((tokens_generated[:,0:1], tokens_generated[:,start:end]))})['tied_embedding_softmax'].squeeze() / (temperature if temperature>0 else 1.)
+
 
             # if penalty (for repetition) is non-zero,
             # discount the logits from already generated tokens
             if penalty > 0:
                 penalized_so_far = set()
-                for _ in range(token + 1):
+                for _ in range(token+1):
                     generated_token = tokens_generated[0][_]
                     # don't penalize newlines
                     # you could also choose not to penalize frequent words
@@ -238,7 +193,7 @@ def cur_text_summary(para_str_in):
             # if you are using nucleus prob, then compute the nucleus probability size
             if nucleusprob > 0.:
                 minimum_topk = 1
-                nucleus = max(np.where(np.cumsum(np.sort(prompt_probs)[::-1]) > nucleusprob)[0][0], minimum_topk)
+                nucleus = max(np.where(np.cumsum(np.sort(prompt_probs)[::-1])>nucleusprob)[0][0], minimum_topk)
             elif topk > 0:
                 # we are over-loading notation here
                 # if you choose to specify a topk instead of a nucleus,
@@ -248,7 +203,7 @@ def cur_text_summary(para_str_in):
                 # if you specify neither nucleus or topk,
                 # then we will use the whole list
                 nucleus = len(pruned_list)
-
+            
             pruned_list = pruned_list[:nucleus]
             # if you want to disallow more complex tokens, you can do so here
             # for instance, if you want to disallow anything with the phrase `http`,
@@ -260,7 +215,7 @@ def cur_text_summary(para_str_in):
                     tokens_to_disallow.append(_)
             pruned_list = np.delete(pruned_list, tokens_to_disallow)
 
-            if args.topn > 0:
+            if args.topn > 0 :
                 print('TOPN :: top-n alternatives:', [idx2word[_] for _ in pruned_list[:args.topn]])
 
             # if temperature is 0
@@ -270,47 +225,27 @@ def cur_text_summary(para_str_in):
             else:
                 # else,
                 # sample from the pruned_list with the logits
-                chosen_idx = int(
-                    tf.random.categorical(np.expand_dims(prompt_logits[_token][pruned_list], 0), num_samples=1).numpy())
+                chosen_idx = int(tf.random.categorical(np.expand_dims(prompt_logits[_token][pruned_list],0), num_samples=1).numpy())
                 idx = pruned_list[chosen_idx]
 
-            if args.topn > 0:
+            if args.topn > 0 :
                 print('TOPN :: chosen word:', idx2word[idx])
 
             # assign the token for generation
-            tokens_generated[0][token + 1] = idx
+            tokens_generated[0][token+1] = idx
 
             # clear screen if you want to
             # os.system("clear")
-            # tokens_generated_so_far = ' '.join([idx2word[c] for c in tokens_generated[0].squeeze()[:token + 2]])
-            # tokens_generated_so_far = re.sub('(@@ )', '', string=tokens_generated_so_far)
-            # tokens_generated_so_far = re.sub('(@@ ?$)', '', string=tokens_generated_so_far)
+            tokens_generated_so_far = ' '.join([idx2word[c] for c in tokens_generated[0].squeeze()[:token+2]])
+            tokens_generated_so_far = re.sub('(@@ )', '', string=tokens_generated_so_far)
+            tokens_generated_so_far = re.sub('(@@ ?$)', '', string=tokens_generated_so_far)
 
-            tokens_generated_only = ' '.join([idx2word[c] for c in tokens_generated[0].squeeze()[len(text):token + 2]])
-            tokens_generated_only = re.sub('(@@ )', '', string=tokens_generated_only)
-            tokens_generated_only = re.sub('(@@ ?$)', '', string=tokens_generated_only)
-            summary_str_out = tokens_generated_only
-            if idx2word[idx].find('.') >= 0:   # 有可能是 subword, '.' == idx2word[idx]:
-                print(idx2word[idx], " has triggled stop flag -- ." )
-                break
-            # if not args.print_once:
-            #     # idx == tokens_generated[0].squeeze()[token+1]
-            #     print('************************************************')
-            #     print(tokens_generated_only)
-            #     print()
-        print(summary_str_out)
+            if not args.print_once:
+                print('---------------------------------------')
+                print(tokens_generated_so_far)
+                print()
+        # print('---------------------------------------')
+        # print(tokens_generated_so_far)
+        # print()
     except KeyboardInterrupt:  # Exception as e:
-        print("cur str_in has triggled KeyboardInterrupt.")
-        return ""
-    return summary_str_out
-
-
-while True:
-    prompt = raw_input('ENTER PROMPT: ') if not use_py3 else input('ENTER PROMPT: ')
-    prompt_list = process_input_text_2_list(prompt, seq_length-100 )
-    print(len(prompt_list))
-    summary_list = []
-    for ii in range(len(prompt_list)):
-        para_str = "News " + prompt_list[ii] + " TL;DR:"
-        cur_summary_str = cur_text_summary(para_str)
-        summary_list.append(cur_summary_str)
+        print('Continuing')
